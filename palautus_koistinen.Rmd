@@ -1,0 +1,271 @@
+---
+title: "Visualizing Gaia data"
+author: "Kosti Koistinen, 518223"
+date: "2 12 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggforce)
+library(tidyverse)
+library("readxl")
+library(knitr)
+```
+
+```{r eval=TRUE, include=FALSE}
+#The algorithms used for data.
+#-----------------------------
+#First get the data from an excel file.
+my_data <- read_excel("data2.xlsx", col_names=TRUE, col_types="guess")
+str(my_data)
+#Store it to variable hr_data to process it. Only include cases with no missing values.
+hr_data=my_data[complete.cases(my_data),]
+
+#Define an array with spectral classes. They are then added to hr_data. 
+spec_type=matrix(1:6, nrow=1,ncol=6, dimnames=list(c(),c("B","A","F","G","K","M")))
+spec_type[,1]=10000
+spec_type[,2]=7500
+spec_type[,3]=6000
+spec_type[,4]=5200
+spec_type[,5]=3700
+spec_type[,6]=2400
+coef(lm(g_mag_abs ~ teff_val, data = hr_data))
+
+binnaus=my_data[complete.cases(my_data),]
+binnaus$tyyppi= c("")
+i=1
+
+while (i<=nrow(binnaus)) {
+  if(binnaus[i,11]<=3700) {
+    binnaus[i,12]="M"    
+  }
+  if(binnaus[i,11]>=3700 && binnaus[i,9]<5200) {
+    binnaus[i,12]="K"    
+  }
+  if(binnaus[i,11]>=5200 && binnaus[i,9]<6000) {
+    binnaus[i,12]="G"    
+  }
+  if(binnaus[i,11]>=6000 && binnaus[i,9]<7500) {
+    binnaus[i,12]="F"    
+  }
+  if(binnaus[i,11]>=7500 && binnaus[i,9]<10000) {
+    binnaus[i,12]="A"    
+  }
+  if(binnaus[i,11]>=10000) {
+    binnaus[i,12]="B"    
+  }
+  i=i+1
+}
+
+#....................
+#Calculate the M-dwarfs and store their indices. Simultaneously count the red dwarfs.
+
+laskuri=0
+i=1
+temp2=0
+while (i<=nrow(binnaus)) {
+  if (binnaus[i,12]=="M" && binnaus[i,5]>8.6){
+    laskuri=laskuri+1}
+  else if (binnaus[i,12]=="M" && binnaus[i,5]<=8.6)
+    temp2=temp2+1
+  i=i+1
+}
+temp1=laskuri
+laskuri=laskuri/100
+#Test prints
+#print("Amount of red dwarfs approximation:")
+#print(round(laskuri,1)*100)
+
+#Define rgiants and Rgiants for plots.
+rgiants=matrix(nrow=temp2+50,ncol=3,dimnames=list(c(),c("teff_val","g_mag_abs","r_est")))
+i=1
+g=1
+
+while (i<=nrow(binnaus)) {
+  if(binnaus[i,12]=="M" && binnaus[i,7]<=8.6){
+    rgiants[g,1]=as.numeric(binnaus[i,11])
+    rgiants[g,2]=as.numeric(binnaus[i,7])
+    rgiants[g,3]=as.numeric(binnaus[i,8])
+    g=g+1
+  }
+i=i+1
+}
+
+RedGiants=rgiants[complete.cases(rgiants),]
+
+
+```
+In this exercise a random sample of GAIA space telescope data was gathered, processed and visualized. The purpose of the exercise was to practice big data handling and data visualizing. The report is divided into 5 parts: Introduction, data gathering, visualization, error estimation and conclusions. The code of the data analysis in R is in Rmd-file.
+
+\newpage
+# Introduction
+## Stellar distributions
+‘The distribution of stars in Milky Way has been a point of interest for a very long time. There are several sky mapping projects, which have been surveying the stellar distributions in Milky Way. In fact, the mapping of stars - statistical astronomy - is probably the oldest form of astronomy.  Ptolemy introduced sky charts first over 2000 years ago, with information of stellar coordinates and their relative brightnesses, the apparent magnitudes.  
+
+One of the most recent surveys was a mission conducted by ESA's space telescope Gaia. It surveyed the skies for almost 12 years, detecting over 3 billion Milky way stars **[1]**. That is only few percent of the total amount of stars in Milky Way, but the results are significant. Using measurements of stellar parallaxes obtained from Gaia photometric data a lot of physical parameters could be determined, one of which are star effective temperature and distance. In this excercice was studied how well a sample of Gaia's data represents the real distribution of stars.  
+
+## Different stellar types
+
+Stars can be classified by many different parameters. Ptolemy classified stars by their brightness, and the method is still valid. By investigating the brightness and parallax of the star one can estimate the stellar surface temperature and it's total luminosity. Star's size and type can then be determined.  
+
+In the beginning of 20th century, astronomer Ejnar Hertzsprung noticed, that stars can be divided into different groups **[2]**. While studying a sample of stars, he noticed, that most stars lie near the main sequence. It can be visualized by plotting the luminosity of a star versus it's surface temperature. Because most stars are in main sequence, it can be deducted that the stars spend there most of their life span. As the stars grow older, they radius increases, and their luminosity increases while the surface temperature decreases: They exit the main sequence. For Sun-like stars, the stars go through a Red Giant phase, and after the star has "died", it falls into White dwarf group. The white dwarfs are very hot, but faint remnants of stars.
+
+The Red Dwarf - type stars are the most common type of stars in the Universe **[3]**. Approximately two thirds of Milky way stars are red dwarfs. They are small,cool and faint stars, with effective temperature (surface temperature) ranging from 2700 K to 4000 K. The red dwarfs are the coolest stars in the main sequence. Due to low rate of fusion processes in red dwarfs, they live much longer than Sun-like stars. They can stay in main sequence for tens of billions of years. 
+
+The goal in this task is to study and visualize the sample of a star set similarly as Hertzsprung did over hundred years ago. The aim is to find out, whether the distribution of stars in their classes represent the reality. There should be a majority of red dwarf stars in the sample, because they are the most common stars in Milky Way. Also one would expect to find a lot of stars near by and fewer, hotter stars further away.
+
+\newpage
+# Data gathering
+
+The 50000 star sample was generated from 1.3 billion target catalogue, which included the geometric distances **[4]**. The sample was made in the ARI website: *http://gaia.ari.uni-heidelberg.de/tap.html*. The Sample was created with following ADQL query:  
+
+**select top 50000 source_id, ra, parallax,parallax_error,dec, phot_g_mean_mag,phot_g_mean_mag + (5 * log10(parallax)- 10) as g_mag_abs, r_est, r_lo, r_hi, teff_val**  
+**FROM gaiadr2_complements.geometric_distance**  
+**JOIN gaiadr2.gaia_source USING (source_id)**  
+**WHERE parallax>0**  
+**order by random_index**  
+Note the absolute g-magnitude variable *M_mag* which is created from the parallax and apparent magnitude (eq.1), where $M_{\mathrm{abs}}$ is the absolute magnitude, $m_{\mathrm{app}}$ is the apparent magnitude and $Px$ is the parallax of an object.
+
+```{=latex}
+\begin{align}
+M_{\mathrm{abs}}= m_{\mathrm{app}}+ 5 \cdot \log_{10}(Px) -10
+\end{align}
+```
+The data was then downloaded as CSV and processed in excel. The dataframe was created with Rstudio readxl-package. Because the point of interest was to study the stellar types and distances of the stars, all the rows that had missing values in those columns was deleted. 7725 entries was left (Table 1).
+
+```{r eval=TRUE, echo=FALSE, results='asis'}
+titlelist=c("ID","Px","P-err","RA","DEC","m mag","M mag","Dist. [pc]","+","-","Eff. temp. [K]")
+
+kable((round(my_data[1:10,],2)),
+             col.names=titlelist, caption = "Few rows of data and selected information of the objects", "simple")
+```
+  
+Table 1 column specifications:  
+1. (ID): Target identification number in GAIA catalog.  
+2. (Px): Parallax of the object in arc sec.  
+3. (P-err): Standard error of the parallax in arc sec.  
+4. (RA): Rectascension of the object in minutes.  
+5. (DEC): Declination of the object in minutes.  
+6. (m m): Measured g mean magnitude.  
+7. (M mag): Calculated absolute magnitude from parallax and g mean magnitude.  
+8. (Dist.): Distance of an object in parsecs.  
+9. (+): Error of distance.  
+10. (-): Error of distance.  
+11. Eff. temp: Effective temperature of the object in Kelvins.  
+
+\newpage
+# Visualization
+## Herzsprung-Russell Diagram
+
+HR-diagram is a very useful plot to investigate different stellar populations. Hertzsprung-Russell diagram has luminosity or magnitude in y-axis, and effective temperature or spectral class in x-axis. The HR-diagram is plotted in figure 1.  
+```{r eval=TRUE, echo=FALSE, warning=FALSE}
+ggplot(data=hr_data)+
+  scale_x_continuous(breaks=c(spec_type), limits=c(3000,11000))+
+  geom_point(mapping=aes(x=teff_val, y=g_mag_abs, color=teff_val))+
+  ylim(20,-20) + theme_bw() +
+geom_vline(xintercept=spec_type, linetype="dashed",color = "green", size=1) + 
+geom_text(x=3300, y=20, color="red",label="M")+
+  geom_text(x=4200, y=20, color="orange",label="K")+
+  geom_text(x=5600, y=20, color="yellow",label="G")+
+  geom_text(x=6800, y=20, color="yellow",label="F")+
+  geom_text(x=8900, y=20, color="blue",label="A")+
+  geom_text(x=10500, y=20, color="blue",label="B")+
+  labs(title="HR-diagram", subtitle="Spectral class", caption="Fig.1 Hertzprung-Russell diagram. The main sequence is estimated with a dashed line.",hjust=0) +
+  labs(y="Absolute magnitude", x = "Effective temperature [K]")+
+  theme(
+  plot.subtitle = element_text(hjust = 0)
+  )+
+  geom_abline(intercept = -15., slope =0.002, linetype="dashed", color="Blue", size=1)+
+  geom_text(x=10000, y=6.5, color="blue",label="Main sequence", angle=15)+
+  scale_color_continuous(high = "blue", low = "red")+
+  theme(axis.text.x=element_text(angle=45, size=10))+
+  theme(panel.background = element_rect(fill = "snow2",
+                                  colour = "lightblue",
+                                  size = 0.5, linetype = "solid"))
+```
+  
+The Main sequence of stars is clearly visible, most of the stars are distributed along the line. The line is synthetic and the approach is very heuristic. It is plotted just to illustrate data trend being around the main sequence, as expected. The areas of plot are divided by spectral classes O,B,A,F,G,K,M. They describe the peak of the spectrum of a star in visible wavelenghts. The red dwarfs are cooler, and therefore, by Wien's law, they emit light in lower wavelengths than brighter, hotter stars **[5]**. By comparison, Sun's effective temperature is 5800 K, and it belongs to spectral class G with absolute magnitude of 4.8. Thus the Sun belongs to the main sequence.  
+
+Bottom left is the area of coolest and smallest stars, the Red Dwarfs. They are in main sequence (a linear plot does not represent the data well in the borders of spectral classes.) Top left are the red Giants.  Because size of the stars remain unknown, it is impossible to draw an exact line on the types of stars. The Absolute magnitude is an indicator. The large red giants are very luminous compared to dwarf stars.  
+
+What else can be learned from HR-diagram? One can notice two dots bottom right. They are probably remnants of the stars, White dwarfs. It is a phase of which all medium sized K-A type stars end up to. There are also objects such as bright giant stars, very luminous and short life hot stars, but unfortunately, the sample does not contain such objects. That could be due to the occurrence of such objects: they are rare in Milky Way **[3]**.  
+
+Already it was very clear that most of the stars are not distributed as expected: There are only few Red Dwarfs compared to other, larger and hotter stars (figure 2). Why? Either the sample is very bad, or the resolution of GAIA’s camera is not efficient enough to detect dim stars. This can be checked with parameter distance. If there is correlation between the magnitude and distance of the star, it suggests, that only larger stars are detected with larger distances. Also it can  be stated, that because most of the stars seem to group near the main sequence, the data is reliable. In reality, most of the stars are in main sequence, because in the life span of a star they spend most of their time there.  
+```{r eval=TRUE, echo=FALSE}
+ggplot(data=binnaus) + geom_bar(mapping=aes(x=tyyppi))+
+  labs(x = "Stellar spectral class")+
+      labs(title="Figure 2: Stellar distribution by spectral class", caption="Fig 2: The G and K-type stars dominate the sample.")
+
+```
+
+\newpage
+In figure 3, the frequency of different spectral classes as a function of distance is plotted. Most of the stars are within few thousand parsecs, but as expected, the brightest stars dominate the distribution in larger distances. Where are the red dwarfs then?
+
+```{r eval=TRUE, echo=FALSE}
+ggplot(binnaus, aes(r_est, colour = tyyppi)) +
+  labs(title="Distribution of stars by spectral class and distance", caption="Fig.3 The G and K type stars dominate the sample within all distances.")+
+  labs(x="Distance [pc]")+
+  geom_freqpoly(binwidth = 500, size=2)+ scale_colour_manual(values = rainbow(6)) #+scale_y_log10()
+```
+
+\newpage
+In figure 4, the “near space” distribution of stars is plotted in order to find the missing red dwarfs. The M-type stars within 3000 pc are plotted. The tick line represents the absolute magnitude of the brightest Red Dwarf known, The Lacaille 8760 **[6]**. Therefore, it can be estimated, that probably most of the stars under this threshold are Red dwarfs. All the rest are Red giant stars (well above the main sequence.) This can be even checked – See figure 6. The red giants are definitely off the main sequence.
+
+```{r eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data=binnaus)+geom_smooth(data=filter(binnaus, tyyppi=="M"), mapping=aes(x=r_est, y=g_mag_abs))+
+  geom_point(data=filter(binnaus, tyyppi!="M"), mapping=aes(x=r_est,y=g_mag_abs),color="lightgrey")+
+  geom_point(data=filter(binnaus, tyyppi=="M"), mapping = aes(x=r_est,y=g_mag_abs), color="red") + ylim(12,5)+ xlim(0,2500)+
+  geom_hline(yintercept=8.71, linetype="dashed",color = "red", size=1)+ 
+  geom_text(x=2000, y=-8.6, color="red",label="Lacaille 8760")+
+  ggtitle("Spectral class M stars") + labs(y="Absolute magnitude", x = "Distance [pc]")+
+  labs(caption = "M-type stars (red) separated from sample. ")
+```
+\newpage
+The red dwarfs are still missing: while searching them with various visualizations, they still remain hidden. One would expect that the dwarfs become abundant within even smaller distances than in previous figure. Indeed, figure 5 suggests a rise in abundance of red dwarfs within smaller distances. The brighter stars still dominate the sample, but it's clear that red dwarfs become abundant within small distances. Therefore, it can be guessed that red dwarfs are abundant in Milky Way, but are not visible in Gaia data. This hypothesis could be checked by downloading all the Gaia data from nearby stars (~500 pc:S), and calculate the ratio (maybe in the next excercise).
+
+```{r eval=TRUE, echo=FALSE}
+ggplot(data=binnaus)+geom_bar(data=filter(binnaus,r_est<150),mapping=aes(x=tyyppi))+
+  labs(x = "Stellar spectral class", title="Stellar spectral class within 150 parsecs", caption="The red dwarfs become more abundant in small distances")
+```
+\newpage
+
+# Errors
+
+A very short consideration of errors was then conducted. One must first consider the goodness of dataset. It was truly a random sample, but 84% of the data was discarded due to lack of information about effective temperature. This is a key issue: The effective temperature can only be calculated, if the distance of the star can be calculated. GAIA measurements are based on parallax. If the measurent of a parallax is not good enough, the estimate of distance nor the effective temperature can be established. One could ask: Are the faint and active red dwarfs exactly such objects? They are faint and highly variable. Maybe GAIA can't measure their parallax very accurately. This could explain the lack of red dwarfs in data set: maybe they were discarded already because of missing effective temperature values!  
+
+The errors of few objects distances and magnitudes are plotted in figure 7. Only a small sample was used to demonstrate how absolute errors contribute to distances and magnitudes. Within small distances, the errors are rather small. Thus it it can be said that red dwarfs truly are red dwarfs. As the errors grow larger, the type of a star becomes unclear. The absolute magnitude depends on the logarithm base 10 parallax(~distance) of the object. Therefore, both errors distance and absolute magnitude are related. The error is calculated with equation 2. Error of apparent magnitude was not considered this time, only error of parallax was used. The $P_{\mathrm{err}}$ is the error of parallax.
+
+```{=latex}
+\begin{align}
+\Delta M_{\mathrm{abs}}= m_{\mathrm{app}}+ 5 \cdot \log_{10}(Px \pm P_{\mathrm{err}}) -10
+\end{align}
+```
+
+```{r eval=TRUE, echo=FALSE, warning=FALSE, message=FALSE}
+ggplot(data=hr_data)+geom_point((data=subset(hr_data,source_id<2.777767e+17)),mapping=aes(x=r_est,y=g_mag_abs))+
+geom_errorbarh(data=subset(hr_data,source_id<2.777767e+17),mapping = aes(y=g_mag_abs,xmin =r_lo, xmax =r_hi), size=.1, color="Blue")+
+geom_errorbar(data=subset(hr_data,source_id<2.777767e+17),mapping = aes(x=r_est,y=g_mag_abs,ymin =(phot_g_mean_mag-10+(5*log10(parallax-parallax_error))),ymax=phot_g_mean_mag-10+(5*log10(parallax+parallax_error)),width=0.0),color="red")+
+  labs(x="Distance [pc]", y="Absolute magnitude", title="Figure 7: The errors of the distances (and magnitudes)", caption="Fig 7: Errors of observations grow in large distances")
+
+```
+\newpage
+
+# Conclusions
+
+1. The K type stars are most abundant in data not because they are abundant in Milky Way, but as they are most abundant when compared to total luminosity.  
+2. Only near by Red dwarfs are discovered. The distribution doesn’t represent reality. Luminous objects are more likely to be discovered.  
+3. There are also a lot of red dwarfs discovered, but their effective temperature is harder to define because errors in parallaxes are probably large. This could not be checked because a lot of data had missing values.  
+4. Most of the detected stars are in main sequence as predicted. Few bright giants are seen, but most of the giants are red giants, as expected.  
+5. Only two white dwarfs are in data set. However, they are very faint, hot objects, so only near by white dwarfs are detected. In Milky Way, 10 billion White dwarfs. That is ~10% of all stars in Milky Way. However, they are very faint, and that’s why they are not detected.
+
+
+\newpage
+
+### References:    
+**[1]** European Space Agency, GAIA mission,  <*https://sci.esa.int/web/gaia*>  
+**[2]**  Hertzprung, Ejnar (1908). "Über die Sterne der Unterabteilung c und ac nach der Spektralklassifikation von Antonia C. Maury". *Astronomische Nachrichten.* **179** (24): 373–380. doi:10.1002/asna.19081792402.  
+**[3]** Ledrew, Glenn (February 2001). "The Real Starry Sky". *Journal of the Royal Astronomical Society of Canada.* **95**: 32. Bibcode:2001JRASC..95...32L  
+**[4]** Bailer-Jones, C.A.L, Rybizki,J et al.: "Estimating distances from parallaxes IV: Distances to 1.33 billion stars in Gaia Data Release 2"*AJ* **158**, 58 (2018)  
+**[5]** Fritzsche, Hellmut. "Wien's law". Encyclopedia Britannica, <*https://www.britannica.com/science/Wiens-law*>.  
+**[6]** Lacaille 8760, Universeguide, <*https://www.universeguide.com/star/105090/lacaille8760*>  
